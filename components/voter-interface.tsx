@@ -9,76 +9,81 @@ import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
-import { CheckCircle, Vote, AlertCircle, User, Users, FileText, ArrowRight, ArrowLeft } from "lucide-react"
+import { CheckCircle, Vote, AlertCircle, User, Users, FileText, ArrowRight, ArrowLeft, Check } from "lucide-react"
 import { useVotingStore } from "@/lib/voting-store"
 import type { VoterDetails } from "@/types/voting"
 import { VoterResults } from "./voter-results"
 
-export function VoterInterface() {
+interface VoterInterfaceProps {
+  showResults: boolean
+}
+
+export function VoterInterface({ showResults }: VoterInterfaceProps) {
   const [currentStep, setCurrentStep] = useState(1)
-  const [voterDetails, setVoterDetails] = useState<VoterDetails>({
-    fullName: "",
-    age: 0,
-    location: "",
-    indexNumber: "",
-  })
+  const [indexNumberInput, setIndexNumberInput] = useState("")
+  const [fetchedVoterDetails, setFetchedVoterDetails] = useState<VoterDetails | null>(null)
   const [selectedCandidate, setSelectedCandidate] = useState("")
   const [hasSubmittedVote, setHasSubmittedVote] = useState(false)
   const [error, setError] = useState("")
 
-  const { candidates, votingSession, castVote, voters } = useVotingStore()
+  const { candidates, votingSession, castVote, getVoterDetailsByIndex } = useVotingStore()
 
-  if (votingSession.displayResults) {
+  // Show results if admin has enabled display
+  if (showResults) {
     return <VoterResults />
   }
 
-  const handleStep1Submit = (e: React.FormEvent) => {
+  const handleIndexNumberSubmit = (e: React.FormEvent) => {
     e.preventDefault()
+    setError("")
 
-    if (!voterDetails.fullName.trim()) {
-      setError("Please enter your full name")
-      return
-    }
-    if (voterDetails.age < 18) {
-      setError("You must be at least 18 years old to vote")
-      return
-    }
-    if (!voterDetails.location.trim()) {
-      setError("Please enter your location")
-      return
-    }
-    if (!voterDetails.indexNumber.trim()) {
-      setError("Please enter your index number")
+    if (!indexNumberInput.trim()) {
+      setError("Please enter your index number.")
       return
     }
 
     if (!votingSession.isActive) {
-      setError("Voting is not currently active")
+      setError("Voting is not currently active.")
       return
     }
 
-    // Check if voter already voted
-    const existingVoter = voters.find((v) => v.voterDetails.indexNumber === voterDetails.indexNumber && v.hasVoted)
-    if (existingVoter) {
-      setError("This index number has already been used to vote")
+    const voterData = getVoterDetailsByIndex(indexNumberInput.trim())
+
+    if (!voterData) {
+      setError("Voter not found with this index number.")
       return
     }
 
-    setError("")
-    setCurrentStep(2)
+    if (voterData.hasVoted) {
+      setError("This index number has already been used to vote.")
+      return
+    }
+
+    setFetchedVoterDetails(voterData.details)
+    setCurrentStep(2) // Move to confirmation step
   }
 
-  const handleStep2Submit = () => {
+  const handleConfirmation = () => {
+    setError("")
+    setCurrentStep(3) // Move to candidate selection
+  }
+
+  const handleCandidateSelection = () => {
     if (!selectedCandidate) {
-      setError("Please select a candidate")
+      setError("Please select a candidate.")
       return
     }
     setError("")
-    setCurrentStep(3)
+    setCurrentStep(4) // Move to final summary
   }
 
   const handleFinalSubmit = () => {
-    const success = castVote(voterDetails, selectedCandidate)
+    if (!fetchedVoterDetails) {
+      setError("Voter details are missing. Please restart the process.")
+      setCurrentStep(1)
+      return
+    }
+    const success = castVote(fetchedVoterDetails, selectedCandidate)
     if (success) {
       setHasSubmittedVote(true)
       setError("")
@@ -133,21 +138,30 @@ export function VoterInterface() {
               >
                 <User className="w-4 h-4" />
               </div>
-              <span className="ml-2 font-medium">Details</span>
+              <span className="ml-2 font-medium">Verify ID</span>
             </div>
             <div className={`w-16 h-1 ${currentStep >= 2 ? "bg-blue-600" : "bg-gray-300"}`}></div>
             <div className={`flex items-center ${currentStep >= 2 ? "text-blue-600" : "text-gray-400"}`}>
               <div
                 className={`w-8 h-8 rounded-full flex items-center justify-center ${currentStep >= 2 ? "bg-blue-600 text-white" : "bg-gray-300"}`}
               >
-                <Users className="w-4 h-4" />
+                <Check className="w-4 h-4" />
               </div>
-              <span className="ml-2 font-medium">Candidates</span>
+              <span className="ml-2 font-medium">Confirm Details</span>
             </div>
             <div className={`w-16 h-1 ${currentStep >= 3 ? "bg-blue-600" : "bg-gray-300"}`}></div>
             <div className={`flex items-center ${currentStep >= 3 ? "text-blue-600" : "text-gray-400"}`}>
               <div
                 className={`w-8 h-8 rounded-full flex items-center justify-center ${currentStep >= 3 ? "bg-blue-600 text-white" : "bg-gray-300"}`}
+              >
+                <Users className="w-4 h-4" />
+              </div>
+              <span className="ml-2 font-medium">Candidates</span>
+            </div>
+            <div className={`w-16 h-1 ${currentStep >= 4 ? "bg-blue-600" : "bg-gray-300"}`}></div>
+            <div className={`flex items-center ${currentStep >= 4 ? "text-blue-600" : "text-gray-400"}`}>
+              <div
+                className={`w-8 h-8 rounded-full flex items-center justify-center ${currentStep >= 4 ? "bg-blue-600 text-white" : "bg-gray-300"}`}
               >
                 <FileText className="w-4 h-4" />
               </div>
@@ -156,67 +170,27 @@ export function VoterInterface() {
           </div>
         </div>
 
-        {/* Step 1: Voter Details */}
+        {/* Step 1: Index Number Entry */}
         {currentStep === 1 && (
           <Card className="w-full max-w-2xl mx-auto">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <User className="w-5 h-5" />
-                Voter Information
+                Voter Verification
               </CardTitle>
-              <CardDescription>Please provide your details to continue</CardDescription>
+              <CardDescription>Please enter your unique index number to proceed</CardDescription>
             </CardHeader>
             <CardContent>
-              <form onSubmit={handleStep1Submit} className="space-y-6">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="fullName">Full Name *</Label>
-                    <Input
-                      id="fullName"
-                      value={voterDetails.fullName}
-                      onChange={(e) => setVoterDetails((prev) => ({ ...prev, fullName: e.target.value }))}
-                      placeholder="Enter your full name"
-                      required
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="age">Age *</Label>
-                    <Input
-                      id="age"
-                      type="number"
-                      min="18"
-                      max="120"
-                      value={voterDetails.age || ""}
-                      onChange={(e) =>
-                        setVoterDetails((prev) => ({ ...prev, age: Number.parseInt(e.target.value) || 0 }))
-                      }
-                      placeholder="Enter your age"
-                      required
-                    />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="location">Location *</Label>
-                    <Input
-                      id="location"
-                      value={voterDetails.location}
-                      onChange={(e) => setVoterDetails((prev) => ({ ...prev, location: e.target.value }))}
-                      placeholder="Enter your location"
-                      required
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="indexNumber">Index Number *</Label>
-                    <Input
-                      id="indexNumber"
-                      value={voterDetails.indexNumber}
-                      onChange={(e) => setVoterDetails((prev) => ({ ...prev, indexNumber: e.target.value }))}
-                      placeholder="Enter your index number"
-                      required
-                    />
-                  </div>
+              <form onSubmit={handleIndexNumberSubmit} className="space-y-6">
+                <div className="space-y-2">
+                  <Label htmlFor="indexNumber">Index Number *</Label>
+                  <Input
+                    id="indexNumber"
+                    value={indexNumberInput}
+                    onChange={(e) => setIndexNumberInput(e.target.value)}
+                    placeholder="Enter your index number"
+                    required
+                  />
                 </div>
 
                 {error && (
@@ -226,7 +200,7 @@ export function VoterInterface() {
                 )}
 
                 <Button type="submit" className="w-full">
-                  Continue to Candidates
+                  Verify and Continue
                   <ArrowRight className="w-4 h-4 ml-2" />
                 </Button>
               </form>
@@ -234,8 +208,61 @@ export function VoterInterface() {
           </Card>
         )}
 
-        {/* Step 2: Candidate Selection */}
-        {currentStep === 2 && (
+        {/* Step 2: Voter Details Confirmation */}
+        {currentStep === 2 && fetchedVoterDetails && (
+          <Card className="w-full max-w-2xl mx-auto">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Check className="w-5 h-5" />
+                Confirm Your Details
+              </CardTitle>
+              <CardDescription>Please review your information and confirm it is correct</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="bg-gray-50 p-4 rounded-lg">
+                <h3 className="font-semibold mb-3">Your Details</h3>
+                <div className="grid grid-cols-2 gap-4 text-sm">
+                  <div>
+                    <span className="text-muted-foreground">Full Name:</span>
+                    <p className="font-medium">{fetchedVoterDetails.fullName}</p>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Age:</span>
+                    <p className="font-medium">{fetchedVoterDetails.age}</p>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Location:</span>
+                    <p className="font-medium">{fetchedVoterDetails.location}</p>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Index Number:</span>
+                    <p className="font-medium">{fetchedVoterDetails.indexNumber}</p>
+                  </div>
+                </div>
+              </div>
+
+              {error && (
+                <Alert variant="destructive">
+                  <AlertDescription>{error}</AlertDescription>
+                </Alert>
+              )}
+
+              <div className="flex gap-4">
+                <Button type="button" variant="outline" onClick={() => setCurrentStep(1)}>
+                  <ArrowLeft className="w-4 h-4 mr-2" />
+                  Back
+                </Button>
+                <Button onClick={handleConfirmation} className="flex-1">
+                  Confirm and Select Candidate
+                  <ArrowRight className="w-4 h-4 ml-2" />
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Step 3: Candidate Selection */}
+        {currentStep === 3 && (
           <Card className="w-full max-w-4xl mx-auto">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
@@ -289,11 +316,11 @@ export function VoterInterface() {
               )}
 
               <div className="flex gap-4 mt-6">
-                <Button type="button" variant="outline" onClick={() => setCurrentStep(1)}>
+                <Button type="button" variant="outline" onClick={() => setCurrentStep(2)}>
                   <ArrowLeft className="w-4 h-4 mr-2" />
                   Back
                 </Button>
-                <Button onClick={handleStep2Submit} className="flex-1">
+                <Button onClick={handleCandidateSelection} className="flex-1">
                   Continue to Summary
                   <ArrowRight className="w-4 h-4 ml-2" />
                 </Button>
@@ -302,8 +329,8 @@ export function VoterInterface() {
           </Card>
         )}
 
-        {/* Step 3: Summary and Confirmation */}
-        {currentStep === 3 && (
+        {/* Step 4: Summary and Confirmation */}
+        {currentStep === 4 && fetchedVoterDetails && (
           <Card className="w-full max-w-2xl mx-auto">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
@@ -319,19 +346,19 @@ export function VoterInterface() {
                 <div className="grid grid-cols-2 gap-4 text-sm">
                   <div>
                     <span className="text-muted-foreground">Full Name:</span>
-                    <p className="font-medium">{voterDetails.fullName}</p>
+                    <p className="font-medium">{fetchedVoterDetails.fullName}</p>
                   </div>
                   <div>
                     <span className="text-muted-foreground">Age:</span>
-                    <p className="font-medium">{voterDetails.age}</p>
+                    <p className="font-medium">{fetchedVoterDetails.age}</p>
                   </div>
                   <div>
                     <span className="text-muted-foreground">Location:</span>
-                    <p className="font-medium">{voterDetails.location}</p>
+                    <p className="font-medium">{fetchedVoterDetails.location}</p>
                   </div>
                   <div>
                     <span className="text-muted-foreground">Index Number:</span>
-                    <p className="font-medium">{voterDetails.indexNumber}</p>
+                    <p className="font-medium">{fetchedVoterDetails.indexNumber}</p>
                   </div>
                 </div>
               </div>
@@ -369,7 +396,7 @@ export function VoterInterface() {
               )}
 
               <div className="flex gap-4">
-                <Button type="button" variant="outline" onClick={() => setCurrentStep(2)}>
+                <Button type="button" variant="outline" onClick={() => setCurrentStep(3)}>
                   <ArrowLeft className="w-4 h-4 mr-2" />
                   Back
                 </Button>

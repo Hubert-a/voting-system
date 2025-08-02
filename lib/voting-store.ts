@@ -2,21 +2,21 @@
 
 import { create } from "zustand"
 import { persist } from "zustand/middleware"
-import type { Candidate, Vote, VotingSession as VotingSessionType, VoterDetails } from "@/types/voting"
+import type { Candidate, Vote, VotingSession, VoterDetails, VoterUser } from "@/types/voting"
 
 interface VotingStore {
   // Admin state
   isAdminLoggedIn: boolean
 
   // Voting session
-  votingSession: VotingSessionType
+  votingSession: VotingSession
 
   // Candidates
   candidates: Candidate[]
 
   // Votes and voters
   votes: Vote[]
-  voters: { id: string; voterDetails: VoterDetails; hasVoted: boolean; timestamp: Date }[]
+  voters: VoterUser[] // Using the refined VoterUser type
 
   // Actions
   adminLogin: (password: string) => boolean
@@ -38,6 +38,8 @@ interface VotingStore {
   }
   showResults: () => void
   hideResults: () => void
+  // New action to fetch voter details by index number
+  getVoterDetailsByIndex: (indexNumber: string) => { details: VoterDetails; hasVoted: boolean } | null
 }
 
 export const useVotingStore = create<VotingStore>()(
@@ -104,7 +106,7 @@ export const useVotingStore = create<VotingStore>()(
         if (!state.votingSession.isActive) return false
 
         // Check if voter already voted (by index number)
-        const existingVoter = state.voters.find((v) => v.voterDetails.indexNumber === voterDetails.indexNumber)
+        const existingVoter = state.voters.find((v) => v.details.indexNumber === voterDetails.indexNumber)
         if (existingVoter?.hasVoted) return false
 
         // Cast vote
@@ -115,19 +117,19 @@ export const useVotingStore = create<VotingStore>()(
           timestamp: new Date(),
         }
 
-        // Update voter info
-        const updatedVoters = state.voters.filter((v) => v.voterDetails.indexNumber !== voterDetails.indexNumber)
-        updatedVoters.push({
+        // Create/update voter info
+        const newVoter: VoterUser = {
           id: voterDetails.indexNumber,
-          voterDetails,
+          details: voterDetails,
           hasVoted: true,
-          timestamp: new Date(),
-        })
+          voteTimestamp: new Date(),
+        }
 
-        set({
+        // Update state
+        set((state) => ({
           votes: [...state.votes, newVote],
-          voters: updatedVoters,
-        })
+          voters: [...state.voters.filter((v) => v.details.indexNumber !== voterDetails.indexNumber), newVoter],
+        }))
 
         return true
       },
@@ -178,6 +180,31 @@ export const useVotingStore = create<VotingStore>()(
             displayResults: false,
           },
         }))
+      },
+
+      // New action: Simulate fetching voter details by index number
+      getVoterDetailsByIndex: (indexNumber: string) => {
+        const state = get()
+        // For demo purposes, let's create a dummy voter if not found
+        // In a real app, this would fetch from a backend
+        const existingVoter = state.voters.find((v) => v.details.indexNumber === indexNumber)
+
+        if (existingVoter) {
+          return { details: existingVoter.details, hasVoted: existingVoter.hasVoted }
+        } else {
+          // Simulate a new voter for demo purposes
+          const dummyVoterDetails: VoterDetails = {
+            fullName: `Voter ${indexNumber}`,
+            age: 25,
+            location: "Demo City",
+            indexNumber: indexNumber,
+          }
+          // Add this new voter to the store so they can be "found" next time
+          set((state) => ({
+            voters: [...state.voters, { id: indexNumber, details: dummyVoterDetails, hasVoted: false }],
+          }))
+          return { details: dummyVoterDetails, hasVoted: false }
+        }
       },
     }),
     {

@@ -14,7 +14,7 @@ type UserType = "admin" | "voter" | null
 export default function HomePage() {
   const [userType, setUserType] = useState<UserType>(null)
   const isAdminLoggedIn = useVotingStore((state) => state.isAdminLoggedIn)
-  const showResults = useVotingStore((state) => state.showResults)
+  const votingSession = useVotingStore((state) => state.votingSession) // Get the entire votingSession
 
   // Show admin dashboard if admin is logged in
   if (userType === "admin" && isAdminLoggedIn) {
@@ -28,11 +28,8 @@ export default function HomePage() {
 
   // Show voter interface if voter type selected
   if (userType === "voter") {
-    if (showResults) {
-      return <VoterInterface showResults={true} />
-    } else {
-      return <VoterInterface />
-    }
+    // Pass the displayResults property directly
+    return <VoterInterface showResults={votingSession.displayResults || false} />
   }
 
   // Show user type selection

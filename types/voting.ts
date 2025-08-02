@@ -1,34 +1,35 @@
 export interface Candidate {
-  id: string;
-  name: string;
-  description?: string;
-  imageUrl?: string;
+  id: string
+  name: string
+  description?: string
+  imageUrl?: string
 }
 
 export interface VoterDetails {
-  fullName: string;
-  age: number;
-  location: string;
-  indexNumber: string;
+  fullName: string
+  age: number
+  location: string
+  indexNumber: string
 }
 
 export interface Vote {
-  id: string;
-  voterDetails: VoterDetails;
-  candidateId: string;
-  timestamp: Date;
+  id: string
+  voterDetails: VoterDetails
+  candidateId: string
+  timestamp: Date
 }
 
 export interface VotingSession {
-  isActive: boolean;
-  startTime?: Date;
-  endTime?: Date;
-  displayResults?: boolean;
+  isActive: boolean
+  startTime?: Date
+  endTime?: Date
+  displayResults?: boolean // Added displayResults
 }
 
-export interface VoterInfo {
-  id: string;
-  voterDetails: VoterDetails;
-  hasVoted: boolean;
-  timestamp?: Date;
+export interface VoterUser {
+  // Refined VoterUser interface
+  id: string // This will be the indexNumber
+  details: VoterDetails
+  hasVoted: boolean
+  voteTimestamp?: Date
 }
