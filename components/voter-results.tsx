@@ -1,16 +1,68 @@
 "use client"
 
+import { Button } from "@/components/ui/button"
+
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Progress } from "@/components/ui/progress"
-import { Badge } from "@/components/ui/badge"
 import { Trophy, Medal, Award, User, BarChart3 } from "lucide-react"
-import { useVotingStore } from "@/lib/voting-store"
+import { useState, useEffect, useCallback } from "react"
+import type { Candidate, VotingSession as VotingSessionType } from "@/types/voting"
+import { Alert, AlertDescription } from "@/components/ui/alert"
+
+interface VotingResult {
+  candidate: Candidate
+  voteCount: number
+  percentage: number
+}
+
+interface VoterStats {
+  totalVoters: number
+  votedCount: number
+  notVotedCount: number
+}
 
 export function VoterResults() {
-  const { getVotingResults, getVoterStats, votingSession } = useVotingStore()
+  const [results, setResults] = useState<VotingResult[]>([])
+  const [voterStats, setVoterStats] = useState<VoterStats>({
+    totalVoters: 0,
+    votedCount: 0,
+    notVotedCount: 0,
+  })
+  const [votingSession, setVotingSession] = useState<VotingSessionType | null>(null)
+  const [isLoading, setIsLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
-  const results = getVotingResults()
-  const voterStats = getVoterStats()
+  const fetchResultsData = useCallback(async () => {
+    setIsLoading(true)
+    setError(null)
+    try {
+      const [resultsRes, statsRes, sessionRes] = await Promise.all([
+        fetch(`${process.env.NEXT_PUBLIC_API_URL}/results`),
+        fetch(`${process.env.NEXT_PUBLIC_API_URL}/stats`),
+        fetch(`${process.env.NEXT_PUBLIC_API_URL}/session`),
+      ])
+
+      const resultsData = await resultsRes.json()
+      const statsData = await statsRes.json()
+      const sessionData = await sessionRes.json()
+
+      setResults(resultsData)
+      setVoterStats(statsData)
+      setVotingSession(sessionData)
+    } catch (err) {
+      setError("Failed to fetch results. Please check if the API is running.")
+      console.error("Error fetching results:", err)
+    } finally {
+      setIsLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    fetchResultsData()
+    const interval = setInterval(fetchResultsData, 5000) // Refresh data every 5 seconds
+    return () => clearInterval(interval)
+  }, [fetchResultsData])
+
   const totalVotes = results.reduce((sum, result) => sum + result.voteCount, 0)
 
   const getRankIcon = (index: number) => {
@@ -30,13 +82,34 @@ export function VoterResults() {
     }
   }
 
+  if (isLoading && !results.length) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <p className="text-lg text-gray-600">Loading results...</p>
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <Alert variant="destructive" className="w-full max-w-md">
+          <AlertDescription>{error}</AlertDescription>
+          <Button onClick={fetchResultsData} className="mt-4">
+            Retry
+          </Button>
+        </Alert>
+      </div>
+    )
+  }
+
   return (
     <div className="min-h-screen bg-gray-50 py-8">
       <div className="max-w-4xl mx-auto px-4">
         <div className="text-center mb-8">
           <h1 className="text-4xl font-bold text-gray-900 mb-4">Voting Results</h1>
           <p className="text-xl text-gray-600">Final results of the voting session</p>
-          {votingSession.endTime && (
+          {votingSession?.endTime && (
             <p className="text-sm text-gray-500 mt-2">
               Voting ended on {new Date(votingSession.endTime).toLocaleString()}
             </p>
@@ -114,13 +187,10 @@ export function VoterResults() {
                       <div className="flex-1">
                         <div className="flex items-center gap-2 mb-1">
                           <h3 className="text-lg font-semibold">{result.candidate.name}</h3>
-                          {index === 0 && result.voteCount > 0 && (
-                            <Badge className="bg-yellow-100 text-yellow-800 border-yellow-300">Winner</Badge>
+                          {result.candidate.description && (
+                            <p className="text-sm text-muted-foreground">{result.candidate.description}</p>
                           )}
                         </div>
-                        {result.candidate.description && (
-                          <p className="text-sm text-muted-foreground">{result.candidate.description}</p>
-                        )}
                       </div>
                     </div>
 

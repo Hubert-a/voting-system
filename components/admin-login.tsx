@@ -14,14 +14,31 @@ export function AdminLogin() {
   const [password, setPassword] = useState("")
   const [error, setError] = useState("")
   const adminLogin = useVotingStore((state) => state.adminLogin)
+  const [isLoading, setIsLoading] = useState(false)
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
-    const success = adminLogin(password)
-    if (!success) {
-      setError('Invalid password. Try "admin123"')
-    } else {
-      setError("")
+    setError("")
+    setIsLoading(true)
+    try {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/admin/login`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ password }),
+      })
+
+      if (response.ok) {
+        adminLogin(password) // Update local Zustand state for routing
+      } else {
+        const data = await response.json()
+        setError(data.message || "Login failed. Please try again.")
+      }
+    } catch (err) {
+      setError("Network error. Could not connect to the server.")
+    } finally {
+      setIsLoading(false)
     }
   }
 
@@ -43,6 +60,7 @@ export function AdminLogin() {
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="Enter admin password"
                 required
+                disabled={isLoading}
               />
             </div>
             {error && (
@@ -50,8 +68,8 @@ export function AdminLogin() {
                 <AlertDescription>{error}</AlertDescription>
               </Alert>
             )}
-            <Button type="submit" className="w-full">
-              Login
+            <Button type="submit" className="w-full" disabled={isLoading}>
+              {isLoading ? "Logging in..." : "Login"}
             </Button>
           </form>
           <div className="mt-4 text-sm text-gray-600">

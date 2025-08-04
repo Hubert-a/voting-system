@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Shield, Users } from "lucide-react"
@@ -8,13 +8,42 @@ import { AdminLogin } from "@/components/admin-login"
 import { AdminDashboard } from "@/components/admin-dashboard"
 import { VoterInterface } from "@/components/voter-interface"
 import { useVotingStore } from "@/lib/voting-store"
+import type { VotingSession } from "@/types/voting"
+import { Alert, AlertDescription } from "@/components/ui/alert"
 
 type UserType = "admin" | "voter" | null
 
 export default function HomePage() {
   const [userType, setUserType] = useState<UserType>(null)
   const isAdminLoggedIn = useVotingStore((state) => state.isAdminLoggedIn)
-  const votingSession = useVotingStore((state) => state.votingSession) // Get the entire votingSession
+  const [votingSession, setVotingSession] = useState<VotingSession | null>(null)
+  const [isLoadingSession, setIsLoadingSession] = useState(true)
+  const [sessionError, setSessionError] = useState<string | null>(null)
+
+  useEffect(() => {
+    const fetchSessionStatus = async () => {
+      setIsLoadingSession(true)
+      setSessionError(null)
+      try {
+        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/session`)
+        if (response.ok) {
+          const data = await response.json()
+          setVotingSession(data)
+        } else {
+          setSessionError("Failed to fetch voting session status.")
+        }
+      } catch (err) {
+        setSessionError("Network error. Could not connect to the voting API.")
+        console.error("Error fetching session status:", err)
+      } finally {
+        setIsLoadingSession(false)
+      }
+    }
+
+    fetchSessionStatus()
+    const interval = setInterval(fetchSessionStatus, 5000) // Refresh session status every 5 seconds
+    return () => clearInterval(interval)
+  }, [])
 
   // Show admin dashboard if admin is logged in
   if (userType === "admin" && isAdminLoggedIn) {
@@ -29,7 +58,30 @@ export default function HomePage() {
   // Show voter interface if voter type selected
   if (userType === "voter") {
     // Pass the displayResults property directly
-    return <VoterInterface showResults={votingSession.displayResults || false} />
+    return <VoterInterface showResults={votingSession?.displayResults || false} />
+  }
+
+  // Show loading state for initial session fetch
+  if (isLoadingSession) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <p className="text-lg text-gray-600">Loading application...</p>
+      </div>
+    )
+  }
+
+  // Show error if API is not reachable
+  if (sessionError) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <Alert variant="destructive" className="w-full max-w-md">
+          <AlertDescription>{sessionError}</AlertDescription>
+          <Button onClick={() => window.location.reload()} className="mt-4">
+            Reload Page
+          </Button>
+        </Alert>
+      </div>
+    )
   }
 
   // Show user type selection

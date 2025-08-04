@@ -7,22 +7,110 @@ import { Progress } from "@/components/ui/progress"
 import { LogOut, Play, Square, Users, BarChart3, User, Eye, EyeOff } from "lucide-react"
 import { useVotingStore } from "@/lib/voting-store"
 import { CandidateManager } from "./candidate-manager"
+import { useState, useEffect, useCallback } from "react"
+import type { Candidate, VotingSession as VotingSessionType } from "@/types/voting"
+import { Alert, AlertDescription } from "@/components/ui/alert"
+
+interface VotingResult {
+  candidate: Candidate
+  voteCount: number
+  percentage: number
+}
+
+interface VoterStats {
+  totalVoters: number
+  votedCount: number
+  notVotedCount: number
+}
 
 export function AdminDashboard() {
-  const {
-    adminLogout,
-    votingSession,
-    startVoting,
-    stopVoting,
-    getVotingResults,
-    getVoterStats,
-    candidates,
-    showResults,
-    hideResults,
-  } = useVotingStore()
+  const adminLogout = useVotingStore((state) => state.adminLogout)
 
-  const results = getVotingResults()
-  const voterStats = getVoterStats()
+  const [votingSession, setVotingSession] = useState<VotingSessionType | null>(null)
+  const [candidates, setCandidates] = useState<Candidate[]>([])
+  const [results, setResults] = useState<VotingResult[]>([])
+  const [voterStats, setVoterStats] = useState<VoterStats>({
+    totalVoters: 0,
+    votedCount: 0,
+    notVotedCount: 0,
+  })
+  const [isLoading, setIsLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  const fetchAllData = useCallback(async () => {
+    setIsLoading(true)
+    setError(null)
+    try {
+      const [sessionRes, candidatesRes, resultsRes, statsRes] = await Promise.all([
+        fetch(`${process.env.NEXT_PUBLIC_API_URL}/session`),
+        fetch(`${process.env.NEXT_PUBLIC_API_URL}/candidates`),
+        fetch(`${process.env.NEXT_PUBLIC_API_URL}/results`),
+        fetch(`${process.env.NEXT_PUBLIC_API_URL}/stats`),
+      ])
+
+      const sessionData = await sessionRes.json()
+      const candidatesData = await candidatesRes.json()
+      const resultsData = await resultsRes.json()
+      const statsData = await statsRes.json()
+
+      setVotingSession(sessionData)
+      setCandidates(candidatesData)
+      setResults(resultsData)
+      setVoterStats(statsData)
+    } catch (err) {
+      setError("Failed to fetch dashboard data. Please check if the API is running.")
+      console.error("Error fetching dashboard data:", err)
+    } finally {
+      setIsLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    fetchAllData()
+    const interval = setInterval(fetchAllData, 5000) // Refresh data every 5 seconds
+    return () => clearInterval(interval)
+  }, [fetchAllData])
+
+  const handleSessionAction = async (action: "start" | "stop" | "display" | "hide") => {
+    setError(null)
+    setIsLoading(true)
+    try {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/admin/session/${action}`, {
+        method: "POST",
+      })
+      if (response.ok) {
+        fetchAllData() // Refresh all data after action
+      } else {
+        const data = await response.json()
+        setError(data.message || `Failed to ${action} voting session.`)
+      }
+    } catch (err) {
+      setError(`Network error. Could not ${action} voting session.`)
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  if (isLoading && !votingSession) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <p className="text-lg text-gray-600">Loading dashboard...</p>
+      </div>
+    )
+  }
+
+  if (error && !votingSession) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <Alert variant="destructive" className="w-full max-w-md">
+          <AlertDescription>{error}</AlertDescription>
+          <Button onClick={fetchAllData} className="mt-4">
+            Retry
+          </Button>
+        </Alert>
+      </div>
+    )
+  }
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -31,8 +119,8 @@ export function AdminDashboard() {
           <div className="flex justify-between items-center py-4">
             <h1 className="text-2xl font-bold text-gray-900">Voting System Admin</h1>
             <div className="flex items-center gap-4">
-              <Badge variant={votingSession.isActive ? "default" : "secondary"}>
-                {votingSession.isActive ? "Voting Active" : "Voting Inactive"}
+              <Badge variant={votingSession?.isActive ? "default" : "secondary"}>
+                {votingSession?.isActive ? "Voting Active" : "Voting Inactive"}
               </Badge>
               <Button variant="outline" onClick={adminLogout}>
                 <LogOut className="w-4 h-4 mr-2" />
@@ -44,6 +132,12 @@ export function AdminDashboard() {
       </header>
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {error && (
+          <Alert variant="destructive" className="mb-4">
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        )}
+
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -81,16 +175,16 @@ export function AdminDashboard() {
 
         <div className="flex gap-4 mb-8">
           <Button
-            onClick={startVoting}
-            disabled={votingSession.isActive || candidates.length === 0}
+            onClick={() => handleSessionAction("start")}
+            disabled={votingSession?.isActive || candidates.length === 0 || isLoading}
             className="flex items-center gap-2"
           >
             <Play className="w-4 h-4" />
             Start Voting
           </Button>
           <Button
-            onClick={stopVoting}
-            disabled={!votingSession.isActive}
+            onClick={() => handleSessionAction("stop")}
+            disabled={!votingSession?.isActive || isLoading}
             variant="destructive"
             className="flex items-center gap-2"
           >
@@ -99,14 +193,14 @@ export function AdminDashboard() {
           </Button>
 
           {/* Add Results Display Controls */}
-          {!votingSession.isActive && (
+          {!votingSession?.isActive && (
             <Button
-              onClick={votingSession.displayResults ? hideResults : showResults}
-              variant={votingSession.displayResults ? "secondary" : "default"}
+              onClick={() => handleSessionAction(votingSession?.displayResults ? "hide" : "display")}
+              variant={votingSession?.displayResults ? "secondary" : "default"}
               className="flex items-center gap-2"
-              disabled={candidates.length === 0}
+              disabled={candidates.length === 0 || isLoading}
             >
-              {votingSession.displayResults ? (
+              {votingSession?.displayResults ? (
                 <>
                   <EyeOff className="w-4 h-4" />
                   Hide Results from Voters
@@ -136,7 +230,7 @@ export function AdminDashboard() {
               </CardHeader>
               <CardContent className="space-y-4">
                 {results.length === 0 ? (
-                  <p className="text-muted-foreground">No candidates available</p>
+                  <p className="text-muted-foreground">No candidates available or no votes cast yet.</p>
                 ) : (
                   results.map((result) => (
                     <div key={result.candidate.id} className="space-y-2">
@@ -168,7 +262,7 @@ export function AdminDashboard() {
           </TabsContent>
 
           <TabsContent value="candidates">
-            <CandidateManager />
+            <CandidateManager candidates={candidates} fetchCandidates={fetchAllData} />
           </TabsContent>
 
           <TabsContent value="voters" className="space-y-4">

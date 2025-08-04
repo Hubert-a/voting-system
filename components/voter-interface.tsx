@@ -1,8 +1,9 @@
 "use client"
 
 import type React from "react"
+import { VoterResults } from "@/components/voter-results" // Declare the VoterResults component
 
-import { useState } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -10,57 +11,95 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { CheckCircle, Vote, AlertCircle, User, Users, FileText, ArrowRight, ArrowLeft, Check } from "lucide-react"
-import { useVotingStore } from "@/lib/voting-store"
-import type { VoterDetails } from "@/types/voting"
-import { VoterResults } from "./voter-results"
+import type { Candidate, VoterDetails, VotingSession as VotingSessionType } from "@/types/voting"
+import { useRouter } from "next/navigation"
 
 interface VoterInterfaceProps {
   showResults: boolean
 }
 
 export function VoterInterface({ showResults }: VoterInterfaceProps) {
+  const router = useRouter()
   const [currentStep, setCurrentStep] = useState(1)
   const [indexNumberInput, setIndexNumberInput] = useState("")
   const [fetchedVoterDetails, setFetchedVoterDetails] = useState<VoterDetails | null>(null)
   const [selectedCandidate, setSelectedCandidate] = useState("")
   const [hasSubmittedVote, setHasSubmittedVote] = useState(false)
   const [error, setError] = useState("")
+  const [isLoading, setIsLoading] = useState(false)
 
-  const { candidates, votingSession, castVote, getVoterDetailsByIndex } = useVotingStore()
+  const [candidates, setCandidates] = useState<Candidate[]>([])
+  const [votingSession, setVotingSession] = useState<VotingSessionType | null>(null)
+
+  const fetchVoterData = useCallback(async () => {
+    setIsLoading(true)
+    setError("")
+    try {
+      const [candidatesRes, sessionRes] = await Promise.all([
+        fetch(`${process.env.NEXT_PUBLIC_API_URL}/candidates`),
+        fetch(`${process.env.NEXT_PUBLIC_API_URL}/session`),
+      ])
+
+      const candidatesData = await candidatesRes.json()
+      const sessionData = await sessionRes.json()
+
+      setCandidates(candidatesData)
+      setVotingSession(sessionData)
+    } catch (err) {
+      setError("Failed to load voting data. Please check your network connection.")
+      console.error("Error fetching voter data:", err)
+    } finally {
+      setIsLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    fetchVoterData()
+    const interval = setInterval(fetchVoterData, 5000) // Refresh session status
+    return () => clearInterval(interval)
+  }, [fetchVoterData])
 
   // Show results if admin has enabled display
   if (showResults) {
     return <VoterResults />
   }
 
-  const handleIndexNumberSubmit = (e: React.FormEvent) => {
+  const handleIndexNumberSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError("")
+    setIsLoading(true)
 
     if (!indexNumberInput.trim()) {
       setError("Please enter your index number.")
+      setIsLoading(false)
       return
     }
 
-    if (!votingSession.isActive) {
+    if (!votingSession?.isActive) {
       setError("Voting is not currently active.")
+      setIsLoading(false)
       return
     }
 
-    const voterData = getVoterDetailsByIndex(indexNumberInput.trim())
-
-    if (!voterData) {
-      setError("Voter not found with this index number.")
-      return
+    try {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/voters/${indexNumberInput.trim()}`)
+      if (response.ok) {
+        const voterData = await response.json()
+        if (voterData.hasVoted) {
+          setError("This index number has already been used to vote.")
+        } else {
+          setFetchedVoterDetails(voterData.details)
+          setCurrentStep(2) // Move to confirmation step
+        }
+      } else {
+        const data = await response.json()
+        setError(data.message || "Failed to verify index number.")
+      }
+    } catch (err) {
+      setError("Network error. Could not verify index number.")
+    } finally {
+      setIsLoading(false)
     }
-
-    if (voterData.hasVoted) {
-      setError("This index number has already been used to vote.")
-      return
-    }
-
-    setFetchedVoterDetails(voterData.details)
-    setCurrentStep(2) // Move to confirmation step
   }
 
   const handleConfirmation = () => {
@@ -77,22 +116,50 @@ export function VoterInterface({ showResults }: VoterInterfaceProps) {
     setCurrentStep(4) // Move to final summary
   }
 
-  const handleFinalSubmit = () => {
+  const handleFinalSubmit = async () => {
+    setError("")
+    setIsLoading(true)
     if (!fetchedVoterDetails) {
       setError("Voter details are missing. Please restart the process.")
       setCurrentStep(1)
+      setIsLoading(false)
       return
     }
-    const success = castVote(fetchedVoterDetails, selectedCandidate)
-    if (success) {
-      setHasSubmittedVote(true)
-      setError("")
-    } else {
-      setError("Failed to cast vote. Please try again.")
+
+    try {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/vote`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          voterDetails: fetchedVoterDetails,
+          candidateId: selectedCandidate,
+        }),
+      })
+
+      if (response.ok) {
+        setHasSubmittedVote(true)
+      } else {
+        const data = await response.json()
+        setError(data.message || "Failed to cast vote. Please try again.")
+      }
+    } catch (err) {
+      setError("Network error. Could not cast vote.")
+    } finally {
+      setIsLoading(false)
     }
   }
 
-  if (!votingSession.isActive) {
+  if (isLoading && !votingSession) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <p className="text-lg text-gray-600">Loading voting interface...</p>
+      </div>
+    )
+  }
+
+  if (!votingSession?.isActive) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <Card className="w-full max-w-md">
@@ -102,6 +169,9 @@ export function VoterInterface({ showResults }: VoterInterfaceProps) {
             <p className="text-muted-foreground text-center">
               The voting session is not currently active. Please check back later.
             </p>
+            <Button onClick={() => router.reload()} className="mt-4">
+              Refresh
+            </Button>
           </CardContent>
         </Card>
       </div>
@@ -190,6 +260,7 @@ export function VoterInterface({ showResults }: VoterInterfaceProps) {
                     onChange={(e) => setIndexNumberInput(e.target.value)}
                     placeholder="Enter your index number"
                     required
+                    disabled={isLoading}
                   />
                 </div>
 
@@ -199,8 +270,8 @@ export function VoterInterface({ showResults }: VoterInterfaceProps) {
                   </Alert>
                 )}
 
-                <Button type="submit" className="w-full">
-                  Verify and Continue
+                <Button type="submit" className="w-full" disabled={isLoading}>
+                  {isLoading ? "Verifying..." : "Verify and Continue"}
                   <ArrowRight className="w-4 h-4 ml-2" />
                 </Button>
               </form>
@@ -248,11 +319,11 @@ export function VoterInterface({ showResults }: VoterInterfaceProps) {
               )}
 
               <div className="flex gap-4">
-                <Button type="button" variant="outline" onClick={() => setCurrentStep(1)}>
+                <Button type="button" variant="outline" onClick={() => setCurrentStep(1)} disabled={isLoading}>
                   <ArrowLeft className="w-4 h-4 mr-2" />
                   Back
                 </Button>
-                <Button onClick={handleConfirmation} className="flex-1">
+                <Button onClick={handleConfirmation} className="flex-1" disabled={isLoading}>
                   Confirm and Select Candidate
                   <ArrowRight className="w-4 h-4 ml-2" />
                 </Button>
@@ -274,38 +345,48 @@ export function VoterInterface({ showResults }: VoterInterfaceProps) {
             <CardContent>
               <RadioGroup value={selectedCandidate} onValueChange={setSelectedCandidate}>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  {candidates.map((candidate) => (
-                    <div key={candidate.id} className="relative">
-                      <RadioGroupItem value={candidate.id} id={candidate.id} className="absolute top-4 right-4 z-10" />
-                      <Label
-                        htmlFor={candidate.id}
-                        className="cursor-pointer block p-6 border-2 rounded-lg hover:bg-gray-50 transition-colors"
-                        style={{
-                          borderColor: selectedCandidate === candidate.id ? "#3b82f6" : "#e5e7eb",
-                        }}
-                      >
-                        <div className="flex flex-col items-center text-center space-y-4">
-                          <div className="w-24 h-24 rounded-full overflow-hidden bg-gray-200 flex items-center justify-center">
-                            {candidate.imageUrl ? (
-                              <img
-                                src={candidate.imageUrl || "/placeholder.svg"}
-                                alt={candidate.name}
-                                className="w-full h-full object-cover"
-                              />
-                            ) : (
-                              <User className="w-12 h-12 text-gray-400" />
-                            )}
+                  {candidates.length === 0 ? (
+                    <p className="col-span-full text-center text-muted-foreground">
+                      No candidates available for voting.
+                    </p>
+                  ) : (
+                    candidates.map((candidate) => (
+                      <div key={candidate.id} className="relative">
+                        <RadioGroupItem
+                          value={candidate.id}
+                          id={candidate.id}
+                          className="absolute top-4 right-4 z-10"
+                        />
+                        <Label
+                          htmlFor={candidate.id}
+                          className="cursor-pointer block p-6 border-2 rounded-lg hover:bg-gray-50 transition-colors"
+                          style={{
+                            borderColor: selectedCandidate === candidate.id ? "#3b82f6" : "#e5e7eb",
+                          }}
+                        >
+                          <div className="flex flex-col items-center text-center space-y-4">
+                            <div className="w-24 h-24 rounded-full overflow-hidden bg-gray-200 flex items-center justify-center">
+                              {candidate.imageUrl ? (
+                                <img
+                                  src={candidate.imageUrl || "/placeholder.svg"}
+                                  alt={candidate.name}
+                                  className="w-full h-full object-cover"
+                                />
+                              ) : (
+                                <User className="w-12 h-12 text-gray-400" />
+                              )}
+                            </div>
+                            <div>
+                              <h3 className="text-lg font-semibold">{candidate.name}</h3>
+                              {candidate.description && (
+                                <p className="text-sm text-muted-foreground mt-2">{candidate.description}</p>
+                              )}
+                            </div>
                           </div>
-                          <div>
-                            <h3 className="text-lg font-semibold">{candidate.name}</h3>
-                            {candidate.description && (
-                              <p className="text-sm text-muted-foreground mt-2">{candidate.description}</p>
-                            )}
-                          </div>
-                        </div>
-                      </Label>
-                    </div>
-                  ))}
+                        </Label>
+                      </div>
+                    ))
+                  )}
                 </div>
               </RadioGroup>
 
@@ -316,11 +397,15 @@ export function VoterInterface({ showResults }: VoterInterfaceProps) {
               )}
 
               <div className="flex gap-4 mt-6">
-                <Button type="button" variant="outline" onClick={() => setCurrentStep(2)}>
+                <Button type="button" variant="outline" onClick={() => setCurrentStep(2)} disabled={isLoading}>
                   <ArrowLeft className="w-4 h-4 mr-2" />
                   Back
                 </Button>
-                <Button onClick={handleCandidateSelection} className="flex-1">
+                <Button
+                  onClick={handleCandidateSelection}
+                  className="flex-1"
+                  disabled={isLoading || candidates.length === 0}
+                >
                   Continue to Summary
                   <ArrowRight className="w-4 h-4 ml-2" />
                 </Button>
@@ -396,13 +481,17 @@ export function VoterInterface({ showResults }: VoterInterfaceProps) {
               )}
 
               <div className="flex gap-4">
-                <Button type="button" variant="outline" onClick={() => setCurrentStep(3)}>
+                <Button type="button" variant="outline" onClick={() => setCurrentStep(3)} disabled={isLoading}>
                   <ArrowLeft className="w-4 h-4 mr-2" />
                   Back
                 </Button>
-                <Button onClick={handleFinalSubmit} className="flex-1 bg-green-600 hover:bg-green-700">
+                <Button
+                  onClick={handleFinalSubmit}
+                  className="flex-1 bg-green-600 hover:bg-green-700"
+                  disabled={isLoading}
+                >
+                  {isLoading ? "Submitting..." : "Submit Vote"}
                   <Vote className="w-4 h-4 mr-2" />
-                  Submit Vote
                 </Button>
               </div>
             </CardContent>

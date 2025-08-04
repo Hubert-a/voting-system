@@ -209,6 +209,8 @@ export const useVotingStore = create<VotingStore>()(
     }),
     {
       name: "voting-system-storage",
+      // Only persist isAdminLoggedIn
+      partialize: (state) => ({ isAdminLoggedIn: state.isAdminLoggedIn }),
     },
   ),
 )

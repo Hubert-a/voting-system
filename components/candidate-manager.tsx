@@ -1,5 +1,9 @@
 "use client"
 
+import { AlertDescription } from "@/components/ui/alert"
+
+import { Alert } from "@/components/ui/alert"
+
 import type React from "react"
 
 import { useState } from "react"
@@ -17,27 +21,76 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog"
 import { Plus, Trash2, User } from "lucide-react"
-import { useVotingStore } from "@/lib/voting-store"
+import type { Candidate } from "@/types/voting"
 
-export function CandidateManager() {
-  const { candidates, addCandidate, removeCandidate } = useVotingStore()
+interface CandidateManagerProps {
+  candidates: Candidate[]
+  fetchCandidates: () => void
+}
+
+export function CandidateManager({ candidates, fetchCandidates }: CandidateManagerProps) {
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [newCandidate, setNewCandidate] = useState({
     name: "",
     description: "",
     imageUrl: "",
   })
+  const [isLoading, setIsLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
-  const handleAddCandidate = (e: React.FormEvent) => {
+  const handleAddCandidate = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (newCandidate.name.trim()) {
-      addCandidate({
-        name: newCandidate.name.trim(),
-        description: newCandidate.description.trim() || undefined,
-        imageUrl: newCandidate.imageUrl.trim() || undefined,
+    setError(null)
+    setIsLoading(true)
+
+    if (!newCandidate.name.trim()) {
+      setError("Candidate name is required.")
+      setIsLoading(false)
+      return
+    }
+
+    try {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/candidates`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(newCandidate),
       })
-      setNewCandidate({ name: "", description: "", imageUrl: "" })
-      setIsDialogOpen(false)
+
+      if (response.ok) {
+        setNewCandidate({ name: "", description: "", imageUrl: "" })
+        setIsDialogOpen(false)
+        fetchCandidates() // Re-fetch candidates to update the list
+      } else {
+        const data = await response.json()
+        setError(data.message || "Failed to add candidate.")
+      }
+    } catch (err) {
+      setError("Network error. Could not add candidate.")
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const handleRemoveCandidate = async (id: string) => {
+    setError(null)
+    setIsLoading(true)
+    try {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/candidates/${id}`, {
+        method: "DELETE",
+      })
+
+      if (response.ok) {
+        fetchCandidates() // Re-fetch candidates to update the list
+      } else {
+        const data = await response.json()
+        setError(data.message || "Failed to remove candidate.")
+      }
+    } catch (err) {
+      setError("Network error. Could not remove candidate.")
+    } finally {
+      setIsLoading(false)
     }
   }
 
@@ -50,7 +103,7 @@ export function CandidateManager() {
         </div>
         <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
           <DialogTrigger asChild>
-            <Button>
+            <Button disabled={isLoading}>
               <Plus className="w-4 h-4 mr-2" />
               Add Candidate
             </Button>
@@ -58,7 +111,7 @@ export function CandidateManager() {
           <DialogContent>
             <DialogHeader>
               <DialogTitle>Add New Candidate</DialogTitle>
-              <DialogDescription>Enter the candidate&apos;s information below</DialogDescription>
+              <DialogDescription>Enter the candidate's information below</DialogDescription>
             </DialogHeader>
             <form onSubmit={handleAddCandidate} className="space-y-4">
               <div className="space-y-2">
@@ -69,6 +122,7 @@ export function CandidateManager() {
                   onChange={(e) => setNewCandidate((prev) => ({ ...prev, name: e.target.value }))}
                   placeholder="Enter candidate name"
                   required
+                  disabled={isLoading}
                 />
               </div>
               <div className="space-y-2">
@@ -79,6 +133,7 @@ export function CandidateManager() {
                   onChange={(e) => setNewCandidate((prev) => ({ ...prev, description: e.target.value }))}
                   placeholder="Enter candidate description"
                   rows={3}
+                  disabled={isLoading}
                 />
               </div>
               <div className="space-y-2">
@@ -88,18 +143,32 @@ export function CandidateManager() {
                   value={newCandidate.imageUrl}
                   onChange={(e) => setNewCandidate((prev) => ({ ...prev, imageUrl: e.target.value }))}
                   placeholder="Enter image URL"
+                  disabled={isLoading}
                 />
               </div>
+              {error && (
+                <Alert variant="destructive">
+                  <AlertDescription>{error}</AlertDescription>
+                </Alert>
+              )}
               <div className="flex justify-end gap-2">
-                <Button type="button" variant="outline" onClick={() => setIsDialogOpen(false)}>
+                <Button type="button" variant="outline" onClick={() => setIsDialogOpen(false)} disabled={isLoading}>
                   Cancel
                 </Button>
-                <Button type="submit">Add Candidate</Button>
+                <Button type="submit" disabled={isLoading}>
+                  {isLoading ? "Adding..." : "Add Candidate"}
+                </Button>
               </div>
             </form>
           </DialogContent>
         </Dialog>
       </div>
+
+      {error && (
+        <Alert variant="destructive">
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {candidates.length === 0 ? (
@@ -124,15 +193,16 @@ export function CandidateManager() {
                       <img
                         src={candidate.imageUrl || "/placeholder.svg"}
                         alt={candidate.name}
-                        className="mt-2 w-24 h-24"
+                        className="mt-2 w-24 h-24 object-cover rounded-md"
                       />
                     )}
                   </div>
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => removeCandidate(candidate.id)}
+                    onClick={() => handleRemoveCandidate(candidate.id)}
                     className="text-red-600 hover:text-red-700"
+                    disabled={isLoading}
                   >
                     <Trash2 className="w-4 h-4" />
                   </Button>

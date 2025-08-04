@@ -27,7 +27,6 @@ export interface VotingSession {
 }
 
 export interface VoterUser {
-  // Refined VoterUser interface
   id: string // This will be the indexNumber
   details: VoterDetails
   hasVoted: boolean
